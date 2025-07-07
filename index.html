@@ -455,6 +455,88 @@
             return totalBreakTime;
         }
 
+        function addExcelStyling(ws, totalRows, totalCols, records) {
+            // Style header row with basic formatting
+            for (let col = 0; col < totalCols; col++) {
+                const cellRef = XLSX.utils.encode_cell({ r: 0, c: col });
+                if (!ws[cellRef]) continue;
+                
+                ws[cellRef].s = {
+                    font: { bold: true, color: { rgb: "FFFFFF" } },
+                    fill: { fgColor: { rgb: "2E75B6" } },
+                    alignment: { horizontal: "center", vertical: "center" }
+                };
+            }
+
+            // Style data rows with basic formatting
+            for (let row = 1; row < totalRows; row++) {
+                const recordIndex = row - 1;
+                const record = records[recordIndex];
+                
+                for (let col = 0; col < totalCols; col++) {
+                    const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
+                    if (!ws[cellRef]) continue;
+                    
+                    let cellStyle = {
+                        font: { sz: 10 },
+                        alignment: { vertical: "center" }
+                    };
+
+                    // Apply specific styling based on column
+                    if (col === 0) { // CODE NUMBER
+                        cellStyle.font.bold = true;
+                        cellStyle.alignment.horizontal = "center";
+                        cellStyle.fill = { fgColor: { rgb: "E7E6E6" } };
+                    } else if (col === 1) { // Name
+                        cellStyle.font.bold = true;
+                        cellStyle.fill = { fgColor: { rgb: "F2F2F2" } };
+                    } else if (col === 2) { // DATE
+                        cellStyle.alignment.horizontal = "center";
+                        cellStyle.fill = { fgColor: { rgb: "D9E1F2" } };
+                    } else if (col === 3) { // DAY
+                        cellStyle.alignment.horizontal = "center";
+                        if (record.day === 'Saturday' || record.day === 'Sunday') {
+                            cellStyle.fill = { fgColor: { rgb: "FFE699" } };
+                            cellStyle.font.bold = true;
+                        } else {
+                            cellStyle.fill = { fgColor: { rgb: "E2EFDA" } };
+                        }
+                    } else if (col === 4) { // CHECK IN
+                        cellStyle.fill = { fgColor: { rgb: "C6EFCE" } };
+                        cellStyle.alignment.horizontal = "center";
+                        cellStyle.font.bold = true;
+                    } else if (col === 5) { // CHECK OUT
+                        cellStyle.fill = { fgColor: { rgb: "FFEB9C" } };
+                        cellStyle.alignment.horizontal = "center";
+                        cellStyle.font.bold = true;
+                    } else if (col === 6) { // BREAK HOURS
+                        cellStyle.fill = { fgColor: { rgb: "B8CCE4" } };
+                        cellStyle.alignment.horizontal = "center";
+                        cellStyle.font.bold = true;
+                    } else if (col === 7) { // WORKING HOURS
+                        const workingHoursValue = parseFloat(record.workingHours) || 0;
+                        if (workingHoursValue === 0 || workingHoursValue < 6) {
+                            cellStyle.fill = { fgColor: { rgb: "F8CBCB" } };
+                            cellStyle.font.bold = true;
+                        } else {
+                            cellStyle.fill = { fgColor: { rgb: "D5E8D4" } };
+                            cellStyle.font.bold = true;
+                        }
+                        cellStyle.alignment.horizontal = "center";
+                    } else if (col === 8) { // REASON
+                        cellStyle.fill = { fgColor: { rgb: "FCE4D6" } };
+                        cellStyle.alignment.horizontal = "center";
+                    } else if (col >= 9) { // Break columns (OUT/IN)
+                        cellStyle.fill = { fgColor: { rgb: "DDEBF7" } };
+                        cellStyle.alignment.horizontal = "center";
+                        cellStyle.font.bold = true;
+                    }
+
+                    ws[cellRef].s = cellStyle;
+                }
+            }
+        }
+
         function generateExcel(data) {
             try {
                 const wb = XLSX.utils.book_new();
@@ -565,12 +647,15 @@
                         // Working hours formula = (Check Out - Check In) - Break Hours
                         const workingFormula = `=IF(AND(E${rowNum}<>"",F${rowNum}<>""),MAX(0,(F${rowNum}-E${rowNum})-G${rowNum}),0)`;
                         
-                        // Set formulas in cells with time format
-                        ws[`G${rowNum}`] = { f: breakFormula, t: 'n', z: 'hh:mm' };
-                        ws[`H${rowNum}`] = { f: workingFormula, t: 'n', z: 'hh:mm' };
-                    });
-                    
-                    // Apply column widths
+                                            // Set formulas in cells with time format
+                    ws[`G${rowNum}`] = { f: breakFormula, t: 'n', z: 'hh:mm' };
+                    ws[`H${rowNum}`] = { f: workingFormula, t: 'n', z: 'hh:mm' };
+                });
+                
+                // Apply comprehensive styling to the worksheet
+                addExcelStyling(ws, sheetData.length, headers.length, empData.records);
+                
+                // Apply column widths
                     const colWidths = [
                         { wch: 12 }, // CODE NUMBER
                         { wch: 20 }, // Name
