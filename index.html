@@ -433,6 +433,8 @@
                     console.warn('Invalid time format for employee', result.employeeId, 'on', result.date);
                     result.workingHours = 0;
                 }
+            } else {
+                result.workingHours = 0;
             }
             
             return result;
@@ -501,8 +503,8 @@
                             row.day,
                             row.checkIn || '',
                             row.checkOut || '',
-                            row.breakHours.toFixed(2),
-                            row.workingHours.toFixed(2),
+                            '', // Break hours - will be formula
+                            '', // Working hours - will be formula
                             '' // Reason - empty for admin to fill
                         ];
                         
@@ -517,6 +519,56 @@
                     
                     // Create worksheet with styling
                     const ws = XLSX.utils.aoa_to_sheet(sheetData);
+                    
+                    // Format time columns to proper Excel time format
+                    empData.records.forEach((row, rowIndex) => {
+                        const rowNum = rowIndex + 2; // Excel row number (1-based, +1 for header)
+                        
+                        // Format check-in and check-out times
+                        if (row.checkIn) {
+                            ws[`E${rowNum}`] = { v: row.checkIn, t: 's', z: 'hh:mm' };
+                        }
+                        if (row.checkOut) {
+                            ws[`F${rowNum}`] = { v: row.checkOut, t: 's', z: 'hh:mm' };
+                        }
+                        
+                        // Format break times
+                        for (let i = 0; i < maxBreaks; i++) {
+                            const breakOutCol = String.fromCharCode(73 + (i * 2)); // I, K, M, O, etc.
+                            const breakInCol = String.fromCharCode(74 + (i * 2));  // J, L, N, P, etc.
+                            
+                            if (row.breakOuts[i]) {
+                                ws[`${breakOutCol}${rowNum}`] = { v: row.breakOuts[i], t: 's', z: 'hh:mm' };
+                            }
+                            if (row.breakIns[i]) {
+                                ws[`${breakInCol}${rowNum}`] = { v: row.breakIns[i], t: 's', z: 'hh:mm' };
+                            }
+                        }
+                    });
+                    
+                    // Add dynamic Excel formulas for break hours and working hours
+                    empData.records.forEach((row, rowIndex) => {
+                        const dataRowIndex = rowIndex + 1; // +1 for header row
+                        const rowNum = dataRowIndex + 1; // Excel row number (1-based)
+                        
+                        // Calculate break hours formula - sum all break durations
+                        let breakFormula = '=(';
+                        for (let i = 0; i < maxBreaks; i++) {
+                            const breakOutCol = String.fromCharCode(73 + (i * 2)); // I, K, M, O, etc.
+                            const breakInCol = String.fromCharCode(74 + (i * 2));  // J, L, N, P, etc.
+                            
+                            if (i > 0) breakFormula += '+';
+                            breakFormula += `IF(AND(${breakOutCol}${rowNum}<>"",${breakInCol}${rowNum}<>""),(${breakInCol}${rowNum}-${breakOutCol}${rowNum}),0)`;
+                        }
+                        breakFormula += ')';
+                        
+                        // Working hours formula = (Check Out - Check In) - Break Hours
+                        const workingFormula = `=IF(AND(E${rowNum}<>"",F${rowNum}<>""),MAX(0,(F${rowNum}-E${rowNum})-G${rowNum}),0)`;
+                        
+                        // Set formulas in cells with time format
+                        ws[`G${rowNum}`] = { f: breakFormula, t: 'n', z: 'hh:mm' };
+                        ws[`H${rowNum}`] = { f: workingFormula, t: 'n', z: 'hh:mm' };
+                    });
                     
                     // Apply column widths
                     const colWidths = [
@@ -591,4 +643,4 @@
     </script>
 </body>
 </html>
-<!-- version 2.0.0 -->
+<!-- version 2.0.1 -->
