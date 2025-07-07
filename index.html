@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESSL X990 Data Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .upload-section h3 {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        input[type="file"] {
+            margin: 10px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .convert-btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 20px auto;
+            display: block;
+        }
+        .convert-btn:hover {
+            background-color: #45a049;
+        }
+        .convert-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .preview {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        .preview table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .preview th, .preview td {
+            border: 1px solid #ddd;
+            padding: 5px;
+            text-align: left;
+        }
+        .preview th {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+        }
+        .time-cell {
+            background-color: #e8f5e8;
+            font-weight: bold;
+            color: #2e7d32;
+        }
+        .break-out-cell {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .break-in-cell {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+        }
+        .header-row {
+            background-color: #2196F3;
+            color: white;
+            font-weight: bold;
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .instructions h4 {
+            margin-top: 0;
+            color: #0066cc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ESSL X990 Data Converter</h1>
+        
+        <div class="instructions">
+            <h4>Instructions:</h4>
+            <ol>
+                <li>Upload your employee list (Excel/CSV with Employee ID and Name columns)</li>
+                <li>Upload the raw punch data (CSV from ESSL X990)</li>
+                <li>Click Convert to generate the attendance Excel file</li>
+            </ol>
+        </div>
+
+        <div class="upload-section">
+            <h3>1. Upload Employee List</h3>
+            <input type="file" id="employeeFile" accept=".xlsx,.xls,.csv" />
+            <div id="employeePreview" class="preview" style="display:none;"></div>
+        </div>
+
+        <div class="upload-section">
+            <h3>2. Upload Punch Data (CSV)</h3>
+            <input type="file" id="punchFile" accept=".csv" />
+            <div id="punchPreview" class="preview" style="display:none;"></div>
+        </div>
+
+        <button class="convert-btn" id="convertBtn" disabled>Convert to Excel</button>
+        
+        <div id="downloadSection" style="display:none; text-align:center; margin-top:20px;">
+            <button class="convert-btn" id="downloadBtn">Download Excel File</button>
+        </div>
+        
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        let employeeData = {};
+        let punchData = [];
+        let processedExcelData = null;
+
+        document.getElementById('employeeFile').addEventListener('change', handleEmployeeFile);
+        document.getElementById('punchFile').addEventListener('change', handlePunchFile);
+        document.getElementById('convertBtn').addEventListener('click', convertData);
+        document.getElementById('downloadBtn').addEventListener('click', downloadExcel);
+
+        function handleEmployeeFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    let data;
+                    if (file.name.endsWith('.csv')) {
+                        data = parseCSV(e.target.result);
+                    } else {
+                        const workbook = XLSX.read(e.target.result, { type: 'binary' });
+                        const sheetName = workbook.SheetNames[0];
+                        data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+                    }
+
+                    processEmployeeData(data);
+                    showStatus('Employee data loaded successfully!', 'success');
+                    checkConvertButton();
+                } catch (error) {
+                    showStatus('Error reading employee file: ' + error.message, 'error');
+                }
+            };
+            
+            if (file.name.endsWith('.csv')) {
+                reader.readAsText(file);
+            } else {
+                reader.readAsBinaryString(file);
+            }
+        }
+
+        function handlePunchFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = parseCSV(e.target.result);
+                    processPunchData(data);
+                    showStatus('Punch data loaded successfully!', 'success');
+                    checkConvertButton();
+                } catch (error) {
+                    showStatus('Error reading punch file: ' + error.message, 'error');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function parseCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            return lines.map(line => {
+                const result = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        result.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                result.push(current.trim());
+                return result;
+            });
+        }
+
+        function processEmployeeData(data) {
+            employeeData = {};
+            
+            // Skip header row if it exists
+            const startRow = data[0] && (isNaN(data[0][0]) || data[0][0] === 'Employee ID' || data[0][0] === 'CODE NUMBER') ? 1 : 0;
+            
+            for (let i = startRow; i < data.length; i++) {
+                const row = data[i];
+                if (row.length >= 2 && row[0] && row[1]) {
+                    employeeData[row[0].toString()] = row[1].toString();
+                }
+            }
+
+            // Show preview
+            const preview = document.getElementById('employeePreview');
+            let html = '<table><tr><th>Employee ID</th><th>Name</th></tr>';
+            let count = 0;
+            for (const [id, name] of Object.entries(employeeData)) {
+                html += `<tr><td>${id}</td><td>${name}</td></tr>`;
+                count++;
+                if (count > 10) {
+                    html += `<tr><td colspan="2">... and ${Object.keys(employeeData).length - 10} more</td></tr>`;
+                    break;
+                }
+            }
+            html += '</table>';
+            preview.innerHTML = html;
+            preview.style.display = 'block';
+        }
+
+        function processPunchData(data) {
+            punchData = [];
+            
+            for (const row of data) {
+                if (row.length >= 4 && row[0] && row[1] && row[3]) {
+                    punchData.push({
+                        employeeId: row[0].toString(),
+                        datetime: row[1],
+                        punchType: row[3].replace(/"/g, '')
+                    });
+                }
+            }
+
+            // Show preview
+            const preview = document.getElementById('punchPreview');
+            let html = '<table><tr><th>Employee ID</th><th>Date Time</th><th>Punch Type</th></tr>';
+            for (let i = 0; i < Math.min(10, punchData.length); i++) {
+                const punch = punchData[i];
+                const typeText = {
+                    '0': 'Check In', 
+                    '1': 'Check Out', 
+                    '2': 'Break OUT (Going for break)', 
+                    '3': 'Break IN (Back from break)'
+                }[punch.punchType] || punch.punchType;
+                html += `<tr><td>${punch.employeeId}</td><td>${punch.datetime}</td><td>${typeText}</td></tr>`;
+            }
+            if (punchData.length > 10) {
+                html += `<tr><td colspan="3">... and ${punchData.length - 10} more records</td></tr>`;
+            }
+            html += '</table>';
+            preview.innerHTML = html;
+            preview.style.display = 'block';
+        }
+
+        function checkConvertButton() {
+            const btn = document.getElementById('convertBtn');
+            btn.disabled = Object.keys(employeeData).length === 0 || punchData.length === 0;
+        }
+
+        function convertData() {
+            try {
+                const processedData = processAttendanceData();
+                processedExcelData = processedData;
+                
+                // Show download button
+                document.getElementById('downloadSection').style.display = 'block';
+                showStatus('Data processed successfully! Click Download button to get Excel file.', 'success');
+            } catch (error) {
+                showStatus('Error converting data: ' + error.message, 'error');
+            }
+        }
+
+        function downloadExcel() {
+            if (!processedExcelData) {
+                showStatus('No data to download. Please convert first.', 'error');
+                return;
+            }
+            
+            try {
+                generateExcel(processedExcelData);
+                showStatus('Excel file downloaded successfully!', 'success');
+            } catch (error) {
+                showStatus('Error downloading file: ' + error.message, 'error');
+            }
+        }
+
+        function processAttendanceData() {
+            const result = [];
+            
+            // Group by employee and date
+            const groupedData = {};
+            
+            for (const punch of punchData) {
+                const empId = punch.employeeId;
+                const date = punch.datetime.split(' ')[0];
+                const key = `${empId}_${date}`;
+                
+                if (!groupedData[key]) {
+                    groupedData[key] = {
+                        employeeId: empId,
+                        date: date,
+                        punches: []
+                    };
+                }
+                
+                groupedData[key].punches.push(punch);
+            }
+            
+            // Process each employee-date combination
+            for (const key in groupedData) {
+                const group = groupedData[key];
+                const processed = processEmployeeDay(group);
+                if (processed) { // Only add if processing was successful
+                    result.push(processed);
+                }
+            }
+            
+            return result;
+        }
+
+        function processEmployeeDay(group) {
+            const punches = group.punches.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+            
+            // Convert DD-MM-YYYY to YYYY-MM-DD for proper date parsing
+            const dateParts = group.date.split('-');
+            if (dateParts.length !== 3) {
+                console.error('Invalid date format:', group.date);
+                return null;
+            }
+            const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+            
+            const result = {
+                employeeId: group.employeeId,
+                name: employeeData[group.employeeId] || 'Unknown',
+                date: group.date,
+                day: new Date(formattedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }),
+                checkIn: '',
+                checkOut: '',
+                breakOuts: [], // Going OUT for break
+                breakIns: [],  // Coming back IN from break
+                breakHours: 0,
+                workingHours: 0
+            };
+            
+            // Find first check-in and last check-out
+            const checkIns = punches.filter(p => p.punchType === '0');
+            const checkOuts = punches.filter(p => p.punchType === '1');
+            
+            if (checkIns.length > 0) {
+                result.checkIn = checkIns[0].datetime.split(' ')[1];
+            }
+            if (checkOuts.length > 0) {
+                result.checkOut = checkOuts[checkOuts.length - 1].datetime.split(' ')[1];
+            }
+            
+            // Get all breaks - corrected logic
+            const breakOuts = punches.filter(p => p.punchType === '2'); // Going OUT for break
+            const breakIns = punches.filter(p => p.punchType === '3');  // Coming back IN from break
+            
+            result.breakOuts = breakOuts.map(p => p.datetime.split(' ')[1]);
+            result.breakIns = breakIns.map(p => p.datetime.split(' ')[1]);
+            
+            // Calculate break hours
+            result.breakHours = calculateBreakHours(result.breakOuts, result.breakIns);
+            
+            // Calculate working hours
+            if (result.checkIn && result.checkOut) {
+                const checkInTime = new Date(`${formattedDate} ${result.checkIn}`);
+                const checkOutTime = new Date(`${formattedDate} ${result.checkOut}`);
+                
+                // Validate that dates are valid
+                if (!isNaN(checkInTime.getTime()) && !isNaN(checkOutTime.getTime())) {
+                    const totalHours = (checkOutTime - checkInTime) / (1000 * 60 * 60);
+                    result.workingHours = Math.max(0, totalHours - result.breakHours);
+                } else {
+                    console.warn('Invalid time format for employee', result.employeeId, 'on', result.date);
+                    result.workingHours = 0;
+                }
+            }
+            
+            return result;
+        }
+
+        function calculateBreakHours(breakOuts, breakIns) {
+            let totalBreakTime = 0;
+            
+            // Calculate break time for each break OUT/IN pair
+            for (let i = 0; i < Math.min(breakOuts.length, breakIns.length); i++) {
+                const breakOutTime = new Date(`2000-01-01 ${breakOuts[i]}`);
+                const breakInTime = new Date(`2000-01-01 ${breakIns[i]}`);
+                if (breakInTime > breakOutTime) {
+                    totalBreakTime += (breakInTime - breakOutTime) / (1000 * 60 * 60);
+                }
+            }
+            
+            return totalBreakTime;
+        }
+
+        function generateExcel(data) {
+            try {
+                const wb = XLSX.utils.book_new();
+                
+                // Group data by employee
+                const employeeGroups = {};
+                data.forEach(row => {
+                    if (!employeeGroups[row.employeeId]) {
+                        employeeGroups[row.employeeId] = {
+                            name: row.name,
+                            records: []
+                        };
+                    }
+                    employeeGroups[row.employeeId].records.push(row);
+                });
+                
+                // Create separate sheet for each employee
+                for (const [empId, empData] of Object.entries(employeeGroups)) {
+                    const sheetData = [];
+                    
+                    // Find maximum number of breaks for this employee
+                    const maxBreaks = Math.max(...empData.records.map(r => 
+                        Math.max(r.breakOuts.length, r.breakIns.length)
+                    ), 3); // Minimum 3 breaks
+                    
+                    // Create dynamic headers
+                    const headers = [
+                        'CODE NUMBER', 'Name', 'DATE', 'DAY', 
+                        'CHECK IN', 'CHECK OUT', 'BREAK HOURS', 'WORKING HOURS', 'REASON'
+                    ];
+                    
+                    // Add break columns dynamically
+                    for (let i = 1; i <= maxBreaks; i++) {
+                        headers.push(`BREAK ${i} OUT`);
+                        headers.push(`BREAK ${i} IN`);
+                    }
+                    
+                    sheetData.push(headers);
+                    
+                    // Add data rows
+                    empData.records.forEach(row => {
+                        const dataRow = [
+                            row.employeeId,
+                            row.name,
+                            row.date,
+                            row.day,
+                            row.checkIn || '',
+                            row.checkOut || '',
+                            row.breakHours.toFixed(2),
+                            row.workingHours.toFixed(2),
+                            '' // Reason - empty for admin to fill
+                        ];
+                        
+                        // Add break times dynamically
+                        for (let i = 0; i < maxBreaks; i++) {
+                            dataRow.push(row.breakOuts[i] || ''); // Break OUT
+                            dataRow.push(row.breakIns[i] || '');  // Break IN
+                        }
+                        
+                        sheetData.push(dataRow);
+                    });
+                    
+                    // Create worksheet with styling
+                    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+                    
+                    // Apply column widths
+                    const colWidths = [
+                        { wch: 12 }, // CODE NUMBER
+                        { wch: 20 }, // Name
+                        { wch: 12 }, // DATE
+                        { wch: 10 }, // DAY
+                        { wch: 10 }, // CHECK IN
+                        { wch: 10 }, // CHECK OUT
+                        { wch: 12 }, // BREAK HOURS
+                        { wch: 14 }, // WORKING HOURS
+                        { wch: 15 }  // REASON
+                    ];
+                    
+                    // Add break column widths
+                    for (let i = 0; i < maxBreaks * 2; i++) {
+                        colWidths.push({ wch: 12 });
+                    }
+                    
+                    ws['!cols'] = colWidths;
+                    
+                    // Add worksheet to workbook
+                    const sheetName = `${empData.name} (${empId})`.substring(0, 31); // Excel sheet name limit
+                    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+                }
+                
+                // Generate file and force download
+                const filename = `Attendance_${new Date().toISOString().split('T')[0]}.xlsx`;
+                
+                // Convert to binary string
+                const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                
+                // Create blob
+                const blob = new Blob([wbout], { 
+                    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+                });
+                
+                // Create download link and click it
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.style.display = 'none';
+                
+                document.body.appendChild(a);
+                a.click();
+                
+                // Clean up
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+                
+                console.log('Download triggered for:', filename);
+                
+            } catch (error) {
+                console.error('Excel generation error:', error);
+                throw error;
+            }
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+            
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
+<!-- version 2.0.0 -->
