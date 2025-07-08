@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESSL X990 Data Converter</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -158,6 +158,12 @@
         
         <div id="downloadSection" style="display:none; text-align:center; margin-top:20px;">
             <button class="convert-btn" id="downloadBtn">Download Excel File</button>
+            <button class="convert-btn" id="previewBtn" style="margin-left:10px; background-color:#2196F3;">View Styled Preview</button>
+        </div>
+        
+        <div id="styledPreview" style="display:none; margin-top:20px;">
+            <h3>Styled Preview (Copy to Excel)</h3>
+            <div id="previewContent" style="overflow-x:auto;"></div>
         </div>
         
         <div id="status" class="status"></div>
@@ -172,6 +178,7 @@
         document.getElementById('punchFile').addEventListener('change', handlePunchFile);
         document.getElementById('convertBtn').addEventListener('click', convertData);
         document.getElementById('downloadBtn').addEventListener('click', downloadExcel);
+        document.getElementById('previewBtn').addEventListener('click', showStyledPreview);
 
         function handleEmployeeFile(event) {
             const file = event.target.files[0];
@@ -455,12 +462,16 @@
             return totalBreakTime;
         }
 
-        function addExcelStyling(ws, totalRows, totalCols, records) {
-            // Style header row with basic formatting
+        function applyExcelStyling(ws, totalRows, totalCols, records) {
+            // Create a style object for the worksheet
+            if (!ws['!styles']) ws['!styles'] = {};
+            
+            // Style header row
             for (let col = 0; col < totalCols; col++) {
                 const cellRef = XLSX.utils.encode_cell({ r: 0, c: col });
                 if (!ws[cellRef]) continue;
                 
+                // Apply header styling
                 ws[cellRef].s = {
                     font: { bold: true, color: { rgb: "FFFFFF" } },
                     fill: { fgColor: { rgb: "2E75B6" } },
@@ -468,7 +479,7 @@
                 };
             }
 
-            // Style data rows with basic formatting
+            // Style data rows
             for (let row = 1; row < totalRows; row++) {
                 const recordIndex = row - 1;
                 const record = records[recordIndex];
@@ -652,8 +663,8 @@
                     ws[`H${rowNum}`] = { f: workingFormula, t: 'n', z: 'hh:mm' };
                 });
                 
-                // Apply comprehensive styling to the worksheet
-                addExcelStyling(ws, sheetData.length, headers.length, empData.records);
+                // Apply Excel styling using compatible method
+                applyExcelStyling(ws, sheetData.length, headers.length, empData.records);
                 
                 // Apply column widths
                     const colWidths = [
@@ -683,8 +694,12 @@
                 // Generate file and force download
                 const filename = `Attendance_${new Date().toISOString().split('T')[0]}.xlsx`;
                 
-                // Convert to binary string
-                const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                // Convert to binary string with styling
+                const wbout = XLSX.write(wb, { 
+                    bookType: 'xlsx', 
+                    type: 'array',
+                    cellStyles: true
+                });
                 
                 // Create blob
                 const blob = new Blob([wbout], { 
@@ -713,6 +728,85 @@
                 console.error('Excel generation error:', error);
                 throw error;
             }
+        }
+
+        function showStyledPreview() {
+            if (!processedExcelData) {
+                showStatus('No data to preview. Please convert first.', 'error');
+                return;
+            }
+            
+            const previewDiv = document.getElementById('previewContent');
+            let html = '<style>';
+            html += '.styled-table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; }';
+            html += '.styled-table th { background-color: #2E75B6; color: white; padding: 12px; text-align: center; font-weight: bold; border: 1px solid #ddd; }';
+            html += '.styled-table td { padding: 8px; border: 1px solid #ddd; }';
+            html += '.employee-id { background-color: #E7E6E6; font-weight: bold; text-align: center; }';
+            html += '.name { background-color: #F2F2F2; font-weight: bold; }';
+            html += '.date { background-color: #D9E1F2; text-align: center; }';
+            html += '.day { background-color: #E2EFDA; text-align: center; }';
+            html += '.weekend { background-color: #FFE699; font-weight: bold; text-align: center; }';
+            html += '.check-in { background-color: #C6EFCE; font-weight: bold; text-align: center; }';
+            html += '.check-out { background-color: #FFEB9C; font-weight: bold; text-align: center; }';
+            html += '.break-hours { background-color: #B8CCE4; font-weight: bold; text-align: center; }';
+            html += '.working-hours { background-color: #D5E8D4; font-weight: bold; text-align: center; }';
+            html += '.zero-hours { background-color: #F8CBCB; font-weight: bold; text-align: center; color: #C00000; }';
+            html += '.reason { background-color: #FCE4D6; text-align: center; }';
+            html += '.break-time { background-color: #DDEBF7; font-weight: bold; text-align: center; }';
+            html += '</style>';
+            
+            // Group data by employee
+            const employeeGroups = {};
+            processedExcelData.forEach(row => {
+                if (!employeeGroups[row.employeeId]) {
+                    employeeGroups[row.employeeId] = {
+                        name: row.name,
+                        records: []
+                    };
+                }
+                employeeGroups[row.employeeId].records.push(row);
+            });
+            
+            for (const [empId, empData] of Object.entries(employeeGroups)) {
+                html += `<h4>${empData.name} (${empId})</h4>`;
+                html += '<table class="styled-table">';
+                html += '<tr>';
+                html += '<th>CODE NUMBER</th><th>Name</th><th>DATE</th><th>DAY</th>';
+                html += '<th>CHECK IN</th><th>CHECK OUT</th><th>BREAK HOURS</th><th>WORKING HOURS</th><th>REASON</th>';
+                html += '<th>BREAK 1 OUT</th><th>BREAK 1 IN</th>';
+                html += '<th>BREAK 2 OUT</th><th>BREAK 2 IN</th>';
+                html += '<th>BREAK 3 OUT</th><th>BREAK 3 IN</th>';
+                html += '</tr>';
+                
+                empData.records.forEach(row => {
+                    const workingHoursClass = (parseFloat(row.workingHours) || 0) < 6 ? 'zero-hours' : 'working-hours';
+                    const dayClass = (row.day === 'Saturday' || row.day === 'Sunday') ? 'weekend' : 'day';
+                    
+                    html += '<tr>';
+                    html += `<td class="employee-id">${row.employeeId}</td>`;
+                    html += `<td class="name">${row.name}</td>`;
+                    html += `<td class="date">${row.date}</td>`;
+                    html += `<td class="${dayClass}">${row.day}</td>`;
+                    html += `<td class="check-in">${row.checkIn || ''}</td>`;
+                    html += `<td class="check-out">${row.checkOut || ''}</td>`;
+                    html += `<td class="break-hours">${row.breakHours.toFixed(2)} hrs</td>`;
+                    html += `<td class="${workingHoursClass}">${row.workingHours.toFixed(2)} hrs</td>`;
+                    html += `<td class="reason"></td>`;
+                    html += `<td class="break-time">${row.breakOuts[0] || ''}</td>`;
+                    html += `<td class="break-time">${row.breakIns[0] || ''}</td>`;
+                    html += `<td class="break-time">${row.breakOuts[1] || ''}</td>`;
+                    html += `<td class="break-time">${row.breakIns[1] || ''}</td>`;
+                    html += `<td class="break-time">${row.breakOuts[2] || ''}</td>`;
+                    html += `<td class="break-time">${row.breakIns[2] || ''}</td>`;
+                    html += '</tr>';
+                });
+                
+                html += '</table><br><br>';
+            }
+            
+            previewDiv.innerHTML = html;
+            document.getElementById('styledPreview').style.display = 'block';
+            showStatus('Styled preview generated! You can copy this to Excel.', 'success');
         }
 
         function showStatus(message, type) {
