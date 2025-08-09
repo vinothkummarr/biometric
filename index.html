@@ -429,12 +429,23 @@
             
             // Calculate working hours
             if (result.checkIn && result.checkOut) {
-                const checkInTime = new Date(`${formattedDate} ${result.checkIn}`);
-                const checkOutTime = new Date(`${formattedDate} ${result.checkOut}`);
+                // Helper function to parse time string to minutes
+                function timeToMinutes(timeStr) {
+                    if (!timeStr) return null;
+                    const parts = timeStr.trim().split(':');
+                    if (parts.length < 2) return null;
+                    const hours = parseInt(parts[0], 10);
+                    const minutes = parseInt(parts[1], 10);
+                    if (isNaN(hours) || isNaN(minutes)) return null;
+                    return hours * 60 + minutes;
+                }
                 
-                // Validate that dates are valid
-                if (!isNaN(checkInTime.getTime()) && !isNaN(checkOutTime.getTime())) {
-                    const totalHours = (checkOutTime - checkInTime) / (1000 * 60 * 60);
+                const checkInMinutes = timeToMinutes(result.checkIn);
+                const checkOutMinutes = timeToMinutes(result.checkOut);
+                
+                if (checkInMinutes !== null && checkOutMinutes !== null && checkOutMinutes > checkInMinutes) {
+                    const totalMinutes = checkOutMinutes - checkInMinutes;
+                    const totalHours = totalMinutes / 60;
                     result.workingHours = Math.max(0, totalHours - result.breakHours);
                 } else {
                     console.warn('Invalid time format for employee', result.employeeId, 'on', result.date);
@@ -450,12 +461,25 @@
         function calculateBreakHours(breakOuts, breakIns) {
             let totalBreakTime = 0;
             
+            // Helper function to parse time string to minutes
+            function timeToMinutes(timeStr) {
+                if (!timeStr) return null;
+                const parts = timeStr.trim().split(':');
+                if (parts.length < 2) return null;
+                const hours = parseInt(parts[0], 10);
+                const minutes = parseInt(parts[1], 10);
+                if (isNaN(hours) || isNaN(minutes)) return null;
+                return hours * 60 + minutes;
+            }
+            
             // Calculate break time for each break OUT/IN pair
             for (let i = 0; i < Math.min(breakOuts.length, breakIns.length); i++) {
-                const breakOutTime = new Date(`2000-01-01 ${breakOuts[i]}`);
-                const breakInTime = new Date(`2000-01-01 ${breakIns[i]}`);
-                if (breakInTime > breakOutTime) {
-                    totalBreakTime += (breakInTime - breakOutTime) / (1000 * 60 * 60);
+                const breakOutMinutes = timeToMinutes(breakOuts[i]);
+                const breakInMinutes = timeToMinutes(breakIns[i]);
+                
+                if (breakOutMinutes !== null && breakInMinutes !== null && breakInMinutes > breakOutMinutes) {
+                    const breakDurationMinutes = breakInMinutes - breakOutMinutes;
+                    totalBreakTime += breakDurationMinutes / 60; // Convert to hours
                 }
             }
             
